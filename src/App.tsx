@@ -95,6 +95,7 @@ import {
   type PlayableTileRenderingSettings,
   type PlayableTutorialSettings,
 } from './lib/playableExport';
+import { DEFAULT_TG_ASSET_KIT_ITEMS, loadDefaultTgAssetKit } from './lib/defaultAssetKit';
 
 // --- Utility ---
 function cn(...inputs: ClassValue[]) {
@@ -427,6 +428,7 @@ export default function App() {
   const [tileRenderingSettings, setTileRenderingSettings] = useState<PlayableTileRenderingSettings>(defaultTileRenderingSettings);
   const [layoutSettings, setLayoutSettings] = useState<PlayableLayoutSettings>(defaultLayoutSettings);
   const [assetLibrary, setAssetLibrary] = useState<PlayableAssetLibrary>(defaultAssets);
+  const [defaultKitStatus, setDefaultKitStatus] = useState('');
   const [tzDraft, setTzDraft] = useState('');
   const [isExportingProject, setIsExportingProject] = useState(false);
   const [exportApiStatus, setExportApiStatus] = useState('');
@@ -1599,6 +1601,33 @@ ${stuckTiles}
     setAssetLibrary(prev => ({ ...prev, [slot]: null }));
   };
 
+  const loadDefaultAssetKit = async () => {
+    setDefaultKitStatus('Loading TG sample kit...');
+    try {
+      const kit = await loadDefaultTgAssetKit();
+      setAssetLibrary(kit);
+      setTileRenderingSettings(prev => ({
+        ...prev,
+        useSharedTexture: true,
+        tintSharedTexture: true,
+        fallbackTint: '#ffffff',
+      }));
+      setSceneSettings(prev => ({
+        ...prev,
+        trailTint: '#fff000',
+      }));
+      setTutorialSettings(prev => ({
+        ...prev,
+        enabled: true,
+        targetMode: prev.targetMode || 'first-available',
+        text: prev.text || 'Tap the highlighted tile!',
+      }));
+      setDefaultKitStatus('TG sample kit loaded');
+    } catch (err) {
+      setDefaultKitStatus(err instanceof Error ? err.message : 'Could not load TG sample kit');
+    }
+  };
+
   useEffect(() => {
     try {
       const raw = localStorage.getItem(ASSET_LIBRARY_STORAGE_KEY);
@@ -2149,6 +2178,24 @@ ${stuckTiles}
         <div className="space-y-2">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 block">Assets</span>
           <div className="bg-zinc-900 border border-zinc-800 rounded-sm p-2 space-y-2">
+            <div className="rounded-sm border border-sky-900/50 bg-sky-950/20 p-2 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold text-sky-200">TG sample asset kit</p>
+                  <p className="text-[9px] text-sky-500 truncate">
+                    {DEFAULT_TG_ASSET_KIT_ITEMS.length} bundled assets: tiles, trail, buttons, backgrounds, music, SFX
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={loadDefaultAssetKit}
+                  className="shrink-0 h-[30px] px-3 rounded-sm bg-sky-500/15 border border-sky-500/40 text-sky-200 hover:bg-sky-500/25 transition-colors text-[10px] font-semibold"
+                >
+                  Load Kit
+                </button>
+              </div>
+              {defaultKitStatus && <p className="text-[9px] text-zinc-500">{defaultKitStatus}</p>}
+            </div>
             <AssetSlotControl
               label="BG Image"
               icon={<ImageIcon size={14} />}
