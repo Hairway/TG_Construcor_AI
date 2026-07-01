@@ -432,6 +432,9 @@ export default function App() {
   const [exportApiStatus, setExportApiStatus] = useState('');
   const [isParsingPdf, setIsParsingPdf] = useState(false);
   const [isImportingTzUrl, setIsImportingTzUrl] = useState(false);
+  const [notionToken, setNotionToken] = useState(() => localStorage.getItem('notion_integration_token') || '');
+  const [useNotionApi, setUseNotionApi] = useState(() => localStorage.getItem('notion_use_api') === 'true');
+  const [isImportingNotion, setIsImportingNotion] = useState(false);
   const [storedAssets, setStoredAssets] = useState<StoredAssetItem[]>([]);
   const [selectedStoredAssetId, setSelectedStoredAssetId] = useState('');
   const [storedProjects, setStoredProjects] = useState<StoredProjectItem[]>([]);
@@ -1167,7 +1170,7 @@ export default function App() {
     const reader = new FileReader();
     reader.onload = async () => {
       try {
-        const response = await fetch('http://localhost:8787/api/parse-tz-pdf', {
+        const response = await fetch('/api/parse-tz-pdf', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1192,7 +1195,7 @@ export default function App() {
         setDialog({
           type: 'confirm',
           title: 'PDF import failed',
-          message: `${message}\n\nStart the local exporter with: npm run export:api`,
+          message: `${message}`,
           onResponse: () => setDialog(null)
         });
       } finally {
@@ -1209,10 +1212,14 @@ export default function App() {
 
     setIsImportingTzUrl(true);
     try {
-      const response = await fetch('http://localhost:8787/api/import-tz-url', {
+      const isNotion = url.includes('notion.com') || url.includes('notion.so') || url.includes('notion.site');
+      const endpoint = isNotion ? '/api/import-notion' : '/api/import-tz-url';
+      const body = isNotion ? { url, notionToken: '' } : { url };
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify(body),
       });
 
       const result = await response.json() as {
@@ -1231,11 +1238,50 @@ export default function App() {
       setDialog({
         type: 'confirm',
         title: 'URL import failed',
-        message: `${message}\n\nThe page may be private. Start the local exporter with: npm run export:api`,
+        message: `${message}\n\nNote: For private or complex pages, please use the Notion API tab.`,
         onResponse: () => setDialog(null)
       });
     } finally {
       setIsImportingTzUrl(false);
+    }
+  };
+
+  const handleNotionImport = async () => {
+    const url = projectMeta.sourceTzUrl.trim();
+    if (!url || isImportingNotion) return;
+
+    setIsImportingNotion(true);
+    try {
+      const response = await fetch('/api/import-notion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, notionToken }),
+      });
+
+      const result = await response.json() as {
+        ok?: boolean;
+        text?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !result.ok || !result.text) {
+        throw new Error(result.error || 'Could not import Notion page.');
+      }
+
+      applyBriefText(result.text);
+      if (notionToken) {
+        localStorage.setItem('notion_integration_token', notionToken);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Notion importer is unavailable.';
+      setDialog({
+        type: 'confirm',
+        title: 'Notion import failed',
+        message: `${message}\n\nTips:\n• If using the Public API, verify the page is published publicly to the web.\n• If using an Integration Token, make sure the page is shared with your integration.`,
+        onResponse: () => setDialog(null)
+      });
+    } finally {
+      setIsImportingNotion(false);
     }
   };
 
@@ -1344,7 +1390,7 @@ ${stuckTiles}
     setExportApiStatus(buildZip ? 'Building playable ZIP...' : 'Exporting Impion project...');
 
     try {
-      const response = await fetch('http://localhost:8787/api/export-impion', {
+      const response = await fetch('/api/export-impion', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ project: canonicalProject, buildZip }),
@@ -1791,22 +1837,97 @@ ${stuckTiles}
                 className="w-full bg-zinc-950 border border-zinc-800 rounded-sm px-2 py-1.5 text-[11px] text-zinc-200 outline-none focus:border-sky-500"
               />
             </label>
-            <label className="space-y-1 block">
-              <span className="text-[9px] text-zinc-500 uppercase font-bold">Notion URL</span>
-              <input
-                value={projectMeta.sourceTzUrl}
-                onChange={(e) => setProjectMeta(prev => ({ ...prev, sourceTzUrl: e.target.value }))}
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-sm px-2 py-1.5 text-[11px] text-zinc-200 outline-none focus:border-sky-500"
-              />
-            </label>
-            <button
-              onClick={handleTzUrlImport}
-              disabled={!projectMeta.sourceTzUrl.trim() || isImportingTzUrl}
-              className="w-full flex items-center justify-center gap-2 p-2 rounded-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-100 font-semibold text-[11px] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isImportingTzUrl ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-              {isImportingTzUrl ? 'Importing URL...' : 'Import TZ URL'}
-            </button>
+            <div className="pt-1.5 border-t border-zinc-800 space-y-2">
+              <div className="flex bg-zinc-950 p-0.5 rounded border border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUseNotionApi(false);
+                    localStorage.setItem('notion_use_api', 'false');
+                  }}
+                  className={cn(
+                    "flex-1 py-1 text-[9px] font-bold uppercase rounded-sm transition-all",
+                    !useNotionApi ? "bg-zinc-800 text-sky-400" : "text-zinc-500 hover:text-zinc-300"
+                  )}
+                >
+                  Standard URL
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUseNotionApi(true);
+                    localStorage.setItem('notion_use_api', 'true');
+                  }}
+                  className={cn(
+                    "flex-1 py-1 text-[9px] font-bold uppercase rounded-sm transition-all",
+                    useNotionApi ? "bg-zinc-800 text-sky-400" : "text-zinc-500 hover:text-zinc-300"
+                  )}
+                >
+                  Notion API
+                </button>
+              </div>
+
+              {!useNotionApi ? (
+                <>
+                  <label className="space-y-1 block">
+                    <span className="text-[9px] text-zinc-500 uppercase font-bold">Source URL</span>
+                    <input
+                      placeholder="https://..."
+                      value={projectMeta.sourceTzUrl}
+                      onChange={(e) => setProjectMeta(prev => ({ ...prev, sourceTzUrl: e.target.value }))}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-sm px-2 py-1.5 text-[11px] text-zinc-200 outline-none focus:border-sky-500 placeholder-zinc-700"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleTzUrlImport}
+                    disabled={!projectMeta.sourceTzUrl.trim() || isImportingTzUrl}
+                    className="w-full flex items-center justify-center gap-2 p-2 rounded-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-100 font-semibold text-[11px] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isImportingTzUrl ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    {isImportingTzUrl ? 'Importing URL...' : 'Import URL'}
+                  </button>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <label className="space-y-1 block">
+                    <span className="text-[9px] text-zinc-500 uppercase font-bold">Notion Page URL or ID</span>
+                    <input
+                      placeholder="https://notion.so/... or 32-char ID"
+                      value={projectMeta.sourceTzUrl}
+                      onChange={(e) => setProjectMeta(prev => ({ ...prev, sourceTzUrl: e.target.value }))}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-sm px-2 py-1.5 text-[11px] text-zinc-200 outline-none focus:border-sky-500 placeholder-zinc-700"
+                    />
+                  </label>
+                  <label className="space-y-1 block">
+                    <span className="text-[9px] text-zinc-500 uppercase font-bold">Notion Integration Token (Optional if page is public)</span>
+                    <input
+                      type="password"
+                      placeholder="secret_... (leave empty if page is public)"
+                      value={notionToken}
+                      onChange={(e) => {
+                        setNotionToken(e.target.value);
+                        localStorage.setItem('notion_integration_token', e.target.value);
+                      }}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-sm px-2 py-1.5 text-[11px] text-zinc-200 outline-none focus:border-sky-500 placeholder-zinc-700"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleNotionImport}
+                    disabled={!projectMeta.sourceTzUrl.trim() || isImportingNotion}
+                    className="w-full flex items-center justify-center gap-2 p-2 rounded-sm bg-sky-600 hover:bg-sky-500 text-white font-bold text-[11px] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isImportingNotion ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    {isImportingNotion ? 'Connecting Notion...' : 'Import from Notion'}
+                  </button>
+                  <div className="text-[9px] text-zinc-500 leading-relaxed bg-zinc-950 border border-zinc-800/60 p-2 rounded-sm mt-1 space-y-1">
+                    <div>💡 **Public Pages:** If your page is Published Publicly to the web, you don't need a token! Just paste the URL and click import.</div>
+                    <div>🔑 **Private Pages:** Create an integration at <a href="https://notion.so/my-integrations" target="_blank" rel="noreferrer" className="text-sky-400 hover:underline">notion.so/my-integrations</a>, paste the Token, and share your page with the integration.</div>
+                  </div>
+                </div>
+              )}
+            </div>
             <label className="w-full flex items-center justify-center gap-2 p-2 rounded-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-100 font-semibold text-[11px] transition-all cursor-pointer">
               <Upload size={14} />
               Import Playable JSON
