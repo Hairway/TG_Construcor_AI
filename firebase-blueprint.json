@@ -1,0 +1,25 @@
+{
+  "entities": {
+    "Puzzle": {
+      "title": "Puzzle",
+      "description": "A saved arrow tile puzzle configuration",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Display name of the puzzle" },
+        "gridWidth": { "type": "number" },
+        "gridHeight": { "type": "number" },
+        "tiles": { "type": "object", "description": "Serialized map of tile objects" },
+        "previewUrl": { "type": "string", "description": "Base64 thumbnail of the puzzle" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "gridWidth", "gridHeight", "tiles", "previewUrl"]
+    }
+  },
+  "firestore": {
+    "puzzles/{puzzleId}": {
+      "schema": "Puzzle",
+      "description": "Saved puzzle documents"
+    }
+  }
+}
